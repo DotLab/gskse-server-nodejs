@@ -1,11 +1,26 @@
 const mongoose = require('mongoose');
 mongoose.connect('mongodb://localhost:27017/gskse', {useNewUrlParser: true});
 
+const ObjectId = mongoose.Schema.Types.ObjectId;
+
 const User = mongoose.model('User', {
   name: String,
   email: String,
   salt: String,
   hash: String,
+});
+
+const Article = mongoose.model('Article', {
+  creator: ObjectId,
+  title: String,
+  excerpt: String,
+  coverUrl: String,
+  isOriginal: Boolean,
+  sourceTitle: String,
+  sourceName: String,
+  sourceUrl: String,
+  markdown: String,
+  date: Date,
 });
 
 const io = require('socket.io');
@@ -85,7 +100,16 @@ server.on('connect', function(socket) {
   socket.on('cl_new_article', ({title, excerpt, coverUrl, isOriginal, sourceTitle, sourceName, sourceUrl, markdown}, done) => {
     console.log('cl_new_article', title);
     if (!user) return done(error('forbidden'));
-    done(success());
+    Article.findOne({title}).then((doc) => {
+      if (doc) throw new Err('duplicated title');
+      return Article.create({
+        creator: user._id,
+        title, excerpt, coverUrl, isOriginal, sourceTitle, sourceName, sourceUrl, markdown,
+        date: new Date(),
+      });
+    }).then((doc) => {
+      done(success());
+    }).catch((err) => done(error(err)));
   });
 
   socket.on('disconnect', () => {
