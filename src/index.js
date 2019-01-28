@@ -1,3 +1,5 @@
+const debug = require('debug')('gskse');
+
 const mongoose = require('mongoose');
 mongoose.connect('mongodb://localhost:27017/gskse', {useNewUrlParser: true});
 
@@ -40,27 +42,12 @@ function Err(message) {
   this.message = message;
 }
 
-const sessions = {};
-function newSession(userId) {
-  const sessionId = crypto.randomBytes(256).toString('base64');
-  sessions[sessionId] = {userId};
-  return sessionId;
-}
-
-function countActiveSessions() {
-  return Object.keys(sessions).length;
-}
-
-function endSession(sessionId) {
-  delete sessions[sessionId];
-}
-
 server.on('connect', function(socket) {
-  console.log('connect', socket.id);
+  debug('connect', socket.id);
   let user;
 
   socket.on('cl_register', ({name, email, password}, done) => {
-    console.log('cl_register', name, email, password);
+    debug('cl_register', name, email, password);
     User.findOne({$or: [{name}, {email}]}).then((doc) => {
       if (doc) throw new Err('existing name or email');
       const salt = crypto.randomBytes(256).toString('base64');
@@ -78,7 +65,7 @@ server.on('connect', function(socket) {
   });
 
   socket.on('cl_login', ({nameOrEmail, password}, done) => {
-    console.log('cl_login', nameOrEmail, password);
+    debug('cl_login', nameOrEmail, password);
     User.find({$or: [{name: nameOrEmail}, {email: nameOrEmail}]}).then((docs) => {
       for (let i = 0; i < docs.length; i += 1) {
         const doc = docs[i];
@@ -98,7 +85,7 @@ server.on('connect', function(socket) {
   });
 
   socket.on('cl_new_article', ({title, excerpt, coverUrl, isOriginal, sourceTitle, sourceName, sourceUrl, markdown}, done) => {
-    console.log('cl_new_article', title);
+    debug('cl_new_article', title);
     if (!user) return done(error('forbidden'));
     Article.findOne({title}).then((doc) => {
       if (doc) throw new Err('duplicated title');
