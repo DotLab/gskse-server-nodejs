@@ -25,8 +25,24 @@ function Err(message) {
   this.message = message;
 }
 
+const sessions = {};
+function newSession(userId) {
+  const sessionId = crypto.randomBytes(256).toString('base64');
+  sessions[sessionId] = {userId};
+  return sessionId;
+}
+
+function countActiveSessions() {
+  return Object.keys(sessions).length;
+}
+
+function endSession(sessionId) {
+  delete sessions[sessionId];
+}
+
 server.on('connect', function(socket) {
   console.log('connect', socket.id);
+  let user;
 
   socket.on('cl_register', ({name, email, password}, done) => {
     console.log('cl_register', name, email, password);
@@ -55,14 +71,24 @@ server.on('connect', function(socket) {
         hasher.update(password);
         hasher.update(doc.salt);
         const hash = hasher.digest('base64');
+        user = doc;
         if (hash === doc.hash) { // matched
           return done(success({
-            id: doc.id,
             name: doc.name,
           }));
         }
       }
       throw new Err('no match found');
     }).catch((err) => done(error(err)));
+  });
+
+  socket.on('cl_new_article', ({title, excerpt, coverUrl, isOriginal, sourceTitle, sourceName, sourceUrl, markdown}, done) => {
+    console.log('cl_new_article', title);
+    if (!user) return done(error('forbidden'));
+    done(success());
+  });
+
+  socket.on('disconnect', () => {
+
   });
 });
