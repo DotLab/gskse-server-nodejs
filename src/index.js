@@ -26,15 +26,17 @@ const Article = mongoose.model('Article', {
 });
 
 const io = require('socket.io');
-const server = io.listen(3001);
+const server = io.listen(process.argv[2] || '3001');
 
 const crypto = require('crypto');
 
 function success(data) {
+  debug('    success', data);
   return {status: 'success', data};
 }
 
 function error(err) {
+  debug('    error', err);
   return {status: 'error', err};
 }
 
