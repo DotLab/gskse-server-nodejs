@@ -44,7 +44,7 @@ function Err(message) {
 
 server.on('connect', function(socket) {
   debug('connect', socket.id);
-  let user;
+  let user = null;
 
   socket.on('cl_register', ({name, email, password}, done) => {
     debug('cl_register', name, email, password);
@@ -84,6 +84,12 @@ server.on('connect', function(socket) {
     }).catch((err) => done(error(err)));
   });
 
+  socket.on('cl_logout', (done) => {
+    debug('cl_logout');
+    user = null;
+    done(success());
+  });
+
   socket.on('cl_new_article', ({title, excerpt, coverUrl, isOriginal, sourceTitle, sourceName, sourceUrl, markdown}, done) => {
     debug('cl_new_article', title);
     if (!user) return done(error('forbidden'));
@@ -100,6 +106,6 @@ server.on('connect', function(socket) {
   });
 
   socket.on('disconnect', () => {
-
+    debug('disconnect', socket.id);
   });
 });
