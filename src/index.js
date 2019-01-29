@@ -26,7 +26,7 @@ const Article = mongoose.model('Article', {
 });
 
 const io = require('socket.io');
-const server = io.listen(process.argv[2] || '3001');
+const server = io.listen(3000);
 
 const crypto = require('crypto');
 
