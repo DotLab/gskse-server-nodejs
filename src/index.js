@@ -13,7 +13,7 @@ const User = mongoose.model('User', {
 });
 
 const Article = mongoose.model('Article', {
-  creator: ObjectId,
+  creatorId: ObjectId,
   title: String,
   excerpt: String,
   coverUrl: String,
@@ -76,9 +76,10 @@ server.on('connect', function(socket) {
         hasher.update(password);
         hasher.update(doc.salt);
         const hash = hasher.digest('base64');
-        user = doc;
         if (hash === doc.hash) { // matched
+          user = doc;
           return done(success({
+            id: doc.id,
             name: doc.name,
           }));
         }
@@ -99,12 +100,22 @@ server.on('connect', function(socket) {
     Article.findOne({title}).then((doc) => {
       if (doc) throw new Err('duplicated title');
       return Article.create({
-        creator: user._id,
+        creatorId: user._id,
         title, excerpt, coverUrl, isOriginal, sourceTitle, sourceName, sourceUrl, markdown,
         date: new Date(),
       });
     }).then((doc) => {
       done(success());
+    }).catch((err) => done(error(err)));
+  });
+
+  socket.on('cl_get_articles', ({creatorId}, done) => {
+    debug('cl_get_articles', creatorId);
+    Article.find({creatorId}).sort({date: -1}).then((docs) => {
+      const data = docs.map(({id, title, excerpt, coverUrl, sourceName, date}) => ({
+        id, title, excerpt, coverUrl, sourceName, date,
+      }));
+      done(success(data));
     }).catch((err) => done(error(err)));
   });
 
