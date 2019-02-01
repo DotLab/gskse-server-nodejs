@@ -243,6 +243,31 @@ server.on('connect', function(socket) {
     });
   });
 
+  socket.on('cl_post_comment', ({targetId, text}, done) => {
+    debug('cl_post_comment', targetId, text);
+    if (!user) return done(error('forbidden'));
+    Article.findByIdAndUpdate(targetId, {$inc: {commentCount: 1}}).exec();
+    Comment.findByIdAndUpdate(targetId, {$inc: {replyCount: 1}}).exec();
+    Comment.create({
+      authorId: user._id,
+      targetId: targetId,
+      text: text,
+      date: new Date(),
+      // cache
+      authorName: user.name,
+      voteCount: 0,
+      replyCount: 0,
+    }).then(() => {
+      return Comment.find({targetId}).then((docs) => {
+        if (!docs) return done(success([]));
+        return done(success(docs.map((doc) => {
+          const {text, date, authorName, voteCount, replyCount} = doc;
+          return {id: doc.id, text, date, authorName, voteCount, replyCount};
+        })));
+      });
+    });
+  });
+
   socket.on('disconnect', () => {
     debug('disconnect', socket.id);
   });
