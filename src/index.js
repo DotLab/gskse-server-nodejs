@@ -2,7 +2,7 @@ const debug = require('debug')('gskse');
 
 const mongoose = require('mongoose');
 mongoose.connect('mongodb://localhost:27017/gskse', {useNewUrlParser: true});
-
+mongoose.set('useFindAndModify', false);
 const ObjectId = mongoose.Schema.Types.ObjectId;
 
 const User = mongoose.model('User', {
@@ -34,19 +34,24 @@ const Article = mongoose.model('Article', {
 });
 
 const Comment = mongoose.model('Comment', {
-  authorId: ObjectId,
+  creatorId: ObjectId,
   targetId: ObjectId,
   text: String,
   date: Date,
   // cache
-  authorName: String,
+  creatorName: String,
   voteCount: Number,
-  replyCount: Number,
+  commentCount: Number,
 });
 
+const UpVote = 'UpVote';
+const DownVote = 'DownVote';
+const Love = 'Love';
+const View = 'View';
+
 const Flag = mongoose.model('Flag', {
-  intent: {type: String, enum: ['UpVote', 'DownVote', 'Love', 'View']},
-  sourceId: ObjectId,
+  intent: {type: String, enum: [UpVote, DownVote, Love, View]},
+  creatorId: ObjectId,
   targetId: ObjectId,
   date: Date,
 });
@@ -58,7 +63,7 @@ if (process.env.NODE_ENV === 'development') {
   let article;
   let comment;
 
-  User.remove({}).then(() => {
+  User.deleteMany({}).then(() => {
     return User.create({
       name: 'Kailang',
       email: 'kailangfu@gmail.com',
@@ -67,7 +72,7 @@ if (process.env.NODE_ENV === 'development') {
     });
   }).then((doc) => {
     user = doc;
-    return Article.remove({}).then(() => {
+    return Article.deleteMany({}).then(() => {
       return Article.create({
         creatorId: user._id,
         title: 'Rimuru Tempest and Robinson Crusoe: How to Build a Civilization',
@@ -80,50 +85,50 @@ if (process.env.NODE_ENV === 'development') {
         date: new Date(),
         // cache
         creatorName: doc.name,
-        voteCount: 0,
-        upVoteCount: 0,
-        downVoteCount: 0,
-        loveCount: 0,
+        voteCount: 3,
+        upVoteCount: 4,
+        downVoteCount: 1,
+        loveCount: 2,
         commentCount: 1,
-        viewCount: 0,
+        viewCount: 5,
       });
     });
   }).then((doc) => {
     article = doc;
-    return Comment.remove({}).then(() => {
+    return Comment.deleteMany({}).then(() => {
       return Comment.create({
-        authorId: user._id,
+        creatorId: user._id,
         targetId: article._id,
         text: 'lask dflkas dflkas dfklasjdflkas jflkas dfalskd jfaflksd d',
         date: new Date(),
         // cache
-        authorName: user.name,
+        creatorName: user.name,
         voteCount: 0,
-        replyCount: 1,
+        commentCount: 2,
       });
     });
   }).then((doc) => {
     comment = doc;
     return Comment.create([
       {
-        authorId: user._id,
+        creatorId: user._id,
         targetId: comment._id,
         text: 'lask as dfalskd jfafasdfas sad lksd d',
         date: new Date(),
         // cache
-        authorName: user.name,
+        creatorName: user.name,
         voteCount: 0,
-        replyCount: 0,
+        commentCount: 0,
       },
       {
-        authorId: user._id,
+        creatorId: user._id,
         targetId: comment._id,
         text: 'lask as dfalskd jfaflkas dads as dd fsd d',
         date: new Date(),
         // cache
-        authorName: user.name,
+        creatorName: user.name,
         voteCount: 0,
-        replyCount: 0,
+        commentCount: 0,
       },
     ]);
   });
@@ -136,12 +141,12 @@ debug('server start');
 const crypto = require('crypto');
 
 function success(data) {
-  debug('    success');
+  debug('    success', JSON.stringify(data));
   return {status: 'success', data};
 }
 
 function error(err) {
-  debug('    error', err);
+  debug('    error', JSON.stringify(err));
   return {status: 'error', err};
 }
 
@@ -213,9 +218,9 @@ server.on('connect', function(socket) {
     }).catch((err) => done(error(err)));
   });
 
-  socket.on('cl_get_articles', ({creatorId}, done) => {
-    debug('cl_get_articles', creatorId);
-    Article.find({creatorId}).sort({date: -1}).then((docs) => {
+  socket.on('cl_get_articles', (args, done) => {
+    debug('cl_get_articles');
+    Article.find().sort({date: -1}).then((docs) => {
       const data = docs.map(({id, title, excerpt, coverUrl, sourceName, date}) => ({
         id, title, excerpt, coverUrl, sourceName, date,
       }));
@@ -223,13 +228,24 @@ server.on('connect', function(socket) {
     }).catch((err) => done(error(err)));
   });
 
-  socket.on('cl_get_article', ({title}, done) => {
+  socket.on('cl_get_article', async ({title}, done) => {
     debug('cl_get_article', title);
-    Article.findOne({title}).then((doc) => {
-      if (!doc) throw new Err('no article found');
-      const {title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount} = doc;
-      done(success({id: doc.id, title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount}));
-    }).catch((err) => done(error(err)));
+    const doc = await Article.findOne({title});
+    if (!doc) return done(error('no article found'));
+    const {excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount} = doc;
+    const res = {id: doc.id, title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount};
+    if (user) {
+      res.viewCount += 1;
+      Flag.create({intent: 'View', creatorId: user._id, targetId: doc._id, date: new Date()});
+      Article.findByIdAndUpdate(doc._id, {$inc: {viewCount: 1}}).exec();
+      const flags = await Flag.find({targetId: doc._id, creatorId: user._id});
+      flags.forEach((flag) => {
+        if (flag.intent === UpVote) res.didUpVote = true;
+        if (flag.intent === DownVote) res.didDownVote = true;
+        if (flag.intent === Love) res.didLove = true;
+      });
+    }
+    return done(success(res));
   });
 
   socket.on('cl_get_comments', ({targetId}, done) => {
@@ -237,8 +253,8 @@ server.on('connect', function(socket) {
     Comment.find({targetId}).then((docs) => {
       if (!docs) return done(success([]));
       return done(success(docs.map((doc) => {
-        const {text, date, authorName, voteCount, replyCount} = doc;
-        return {id: doc.id, text, date, authorName, voteCount, replyCount};
+        const {text, date, creatorName, voteCount, commentCount} = doc;
+        return {id: doc.id, text, date, creatorName, voteCount, commentCount};
       })));
     });
   });
@@ -247,25 +263,96 @@ server.on('connect', function(socket) {
     debug('cl_post_comment', targetId, text);
     if (!user) return done(error('forbidden'));
     Article.findByIdAndUpdate(targetId, {$inc: {commentCount: 1}}).exec();
-    Comment.findByIdAndUpdate(targetId, {$inc: {replyCount: 1}}).exec();
+    Comment.findByIdAndUpdate(targetId, {$inc: {commentCount: 1}}).exec();
     Comment.create({
-      authorId: user._id,
+      creatorId: user._id,
       targetId: targetId,
       text: text,
       date: new Date(),
       // cache
-      authorName: user.name,
+      creatorName: user.name,
       voteCount: 0,
-      replyCount: 0,
+      commentCount: 0,
     }).then(() => {
       return Comment.find({targetId}).then((docs) => {
         if (!docs) return done(success([]));
         return done(success(docs.map((doc) => {
-          const {text, date, authorName, voteCount, replyCount} = doc;
-          return {id: doc.id, text, date, authorName, voteCount, replyCount};
+          const {text, date, creatorName, voteCount, commentCount} = doc;
+          return {id: doc.id, text, date, creatorName, voteCount, commentCount};
         })));
       });
     });
+  });
+
+  socket.on('cl_flag', async ({targetId, intent}, done) => {
+    if (!user) return done(error('forbidden'));
+    switch (intent) {
+      case UpVote: {
+        const adjustment = {didUpVote: false, didDownVote: false, voteCount: 0, upVoteCount: 0, downVoteCount: 0};
+        let flag = await Flag.findOne({targetId, intent: UpVote});
+        if (flag) { // un-vote
+          adjustment.voteCount -= 1;
+          adjustment.upVoteCount -= 1;
+          Flag.remove({targetId, creatorId: user._id, intent: UpVote}).exec();
+          return done(success(adjustment));
+        }
+
+        adjustment.voteCount += 1;
+        adjustment.upVoteCount += 1;
+        adjustment.didUpVote = true;
+        flag = await Flag.findOne({targetId, creatorId: user._id, intent: DownVote});
+        if (flag) { // originally voted down
+          adjustment.voteCount += 1;
+          adjustment.downVoteCount -= 1;
+          Flag.remove({targetId, creatorId: user._id, intent: DownVote}).exec();
+        }
+        Flag.create({targetId, creatorId: user._id, intent: UpVote});
+        Article.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        Comment.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        return done(success(adjustment));
+      }
+      case DownVote: {
+        const adjustment = {didUpVote: false, didDownVote: false, voteCount: 0, upVoteCount: 0, downVoteCount: 0};
+        let flag = await Flag.findOne({targetId, creatorId: user._id, intent: DownVote});
+        if (flag) { // un-vote
+          adjustment.voteCount += 1;
+          adjustment.downVoteCount -= 1;
+          Flag.remove({targetId, creatorId: user._id, intent: DownVote}).exec();
+          return done(success(adjustment));
+        }
+
+        adjustment.voteCount -= 1;
+        adjustment.downVoteCount += 1;
+        adjustment.didDownVote = true;
+        flag = await Flag.findOne({targetId, creatorId: user._id, intent: UpVote});
+        if (flag) { // originally voted up
+          adjustment.voteCount -= 1;
+          adjustment.upVoteCount -= 1;
+          Flag.remove({targetId, creatorId: user._id, intent: UpVote}).exec();
+        }
+        Flag.create({targetId, creatorId: user._id, intent: DownVote});
+        Article.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        Comment.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        return done(success(adjustment));
+      }
+      case Love: {
+        const adjustment = {didLove: false, loveCount: 0};
+        const flag = await Flag.findOne({targetId, creatorId: user._id, intent: Love});
+        if (flag) { // un-love
+          adjustment.loveCount -= 1;
+          Flag.remove({targetId, creatorId: user._id, intent: Love}).exec();
+          return done(success(adjustment));
+        }
+        adjustment.loveCount += 1;
+        adjustment.didLove = true;
+        Flag.create({targetId, creatorId: user._id, intent: Love});
+        Article.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        Comment.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        return done(success(adjustment));
+      }
+      default:
+        return done(error('invalid flag'));
+    }
   });
 
   socket.on('disconnect', () => {
