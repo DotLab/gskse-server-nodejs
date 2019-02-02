@@ -99,7 +99,7 @@ if (process.env.NODE_ENV === 'development') {
       return Comment.create({
         creatorId: user._id,
         targetId: article._id,
-        text: 'lask dflkas dflkas dfklasjdflkas jflkas dfalskd jfaflksd d',
+        text: 'Don\'t dream too far. Don\'t lose side of who you are.',
         date: new Date(),
         // cache
         creatorName: user.name,
@@ -248,15 +248,28 @@ server.on('connect', function(socket) {
     return done(success(res));
   });
 
-  socket.on('cl_get_comments', ({targetId}, done) => {
+  socket.on('cl_get_comments', async ({targetId}, done) => {
     debug('cl_get_comments', targetId);
-    Comment.find({targetId}).then((docs) => {
-      if (!docs) return done(success([]));
-      return done(success(docs.map((doc) => {
-        const {text, date, creatorName, voteCount, commentCount} = doc;
-        return {id: doc.id, text, date, creatorName, voteCount, commentCount};
-      })));
+    const docs = await Comment.find({targetId});
+    if (!docs) return done(success([]));
+
+    const dict = {};
+    if (user) {
+      const flags = await Flag.find({$or: docs.map((doc) => ({targetId: doc._id, creatorId: user._id}))});
+      flags.forEach((flag) => {
+        const id = flag.targetId.toString();
+        if (!dict[id]) dict[id] = {};
+        if (flag.intent === UpVote) dict[id].didUpVote = true;
+        if (flag.intent === DownVote) dict[id].didDownVote = true;
+      });
+    }
+
+    const res = docs.map((doc) => {
+      const {text, date, creatorName, voteCount, commentCount} = doc;
+      return {...dict[doc.id], id: doc.id, text, date, creatorName, voteCount, commentCount};
     });
+
+    return done(success(res));
   });
 
   socket.on('cl_post_comment', ({targetId, text}, done) => {
@@ -285,6 +298,7 @@ server.on('connect', function(socket) {
   });
 
   socket.on('cl_flag', async ({targetId, intent}, done) => {
+    debug('cl_flag', intent, targetId);
     if (!user) return done(error('forbidden'));
     switch (intent) {
       case UpVote: {
@@ -293,7 +307,7 @@ server.on('connect', function(socket) {
         if (flag) { // un-vote
           adjustment.voteCount -= 1;
           adjustment.upVoteCount -= 1;
-          Flag.remove({targetId, creatorId: user._id, intent: UpVote}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: UpVote}).exec();
           return done(success(adjustment));
         }
 
@@ -304,7 +318,7 @@ server.on('connect', function(socket) {
         if (flag) { // originally voted down
           adjustment.voteCount += 1;
           adjustment.downVoteCount -= 1;
-          Flag.remove({targetId, creatorId: user._id, intent: DownVote}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: DownVote}).exec();
         }
         Flag.create({targetId, creatorId: user._id, intent: UpVote});
         Article.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
@@ -317,7 +331,7 @@ server.on('connect', function(socket) {
         if (flag) { // un-vote
           adjustment.voteCount += 1;
           adjustment.downVoteCount -= 1;
-          Flag.remove({targetId, creatorId: user._id, intent: DownVote}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: DownVote}).exec();
           return done(success(adjustment));
         }
 
@@ -328,7 +342,7 @@ server.on('connect', function(socket) {
         if (flag) { // originally voted up
           adjustment.voteCount -= 1;
           adjustment.upVoteCount -= 1;
-          Flag.remove({targetId, creatorId: user._id, intent: UpVote}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: UpVote}).exec();
         }
         Flag.create({targetId, creatorId: user._id, intent: DownVote});
         Article.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
@@ -340,7 +354,7 @@ server.on('connect', function(socket) {
         const flag = await Flag.findOne({targetId, creatorId: user._id, intent: Love});
         if (flag) { // un-love
           adjustment.loveCount -= 1;
-          Flag.remove({targetId, creatorId: user._id, intent: Love}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: Love}).exec();
           return done(success(adjustment));
         }
         adjustment.loveCount += 1;
