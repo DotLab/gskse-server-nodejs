@@ -89,7 +89,7 @@ if (process.env.NODE_ENV === 'development') {
           upVoteCount: 4,
           downVoteCount: 1,
           loveCount: 2,
-          commentCount: 1,
+          commentCount: 0,
           viewCount: 5,
         },
       ]);
@@ -270,26 +270,30 @@ server.on('connect', function(socket) {
 
   socket.on('cl_get_comments', async ({targetId}, done) => {
     debug('cl_get_comments', targetId);
-    const docs = await Comment.find({targetId});
-    if (!docs) return done(success([]));
+    try {
+      const docs = await Comment.find({targetId});
+      if (!docs || docs.length === 0) return done(success([]));
 
-    const dict = {};
-    if (user) {
-      const flags = await Flag.find({$or: docs.map((doc) => ({targetId: doc._id, creatorId: user._id}))});
-      flags.forEach((flag) => {
-        const id = flag.targetId.toString();
-        if (!dict[id]) dict[id] = {};
-        if (flag.intent === UpVote) dict[id].didUpVote = true;
-        if (flag.intent === DownVote) dict[id].didDownVote = true;
+      const dict = {};
+      if (user) {
+        const flags = await Flag.find({$or: docs.map((doc) => ({targetId: doc._id, creatorId: user._id}))});
+        flags.forEach((flag) => {
+          const id = flag.targetId.toString();
+          if (!dict[id]) dict[id] = {};
+          if (flag.intent === UpVote) dict[id].didUpVote = true;
+          if (flag.intent === DownVote) dict[id].didDownVote = true;
+        });
+      }
+
+      const res = docs.map((doc) => {
+        const {text, date, creatorName, voteCount, commentCount} = doc;
+        return {...dict[doc.id], id: doc.id, text, date, creatorName, voteCount, commentCount};
       });
+
+      return done(success(res));
+    } catch (e) {
+      done(error(e));
     }
-
-    const res = docs.map((doc) => {
-      const {text, date, creatorName, voteCount, commentCount} = doc;
-      return {...dict[doc.id], id: doc.id, text, date, creatorName, voteCount, commentCount};
-    });
-
-    return done(success(res));
   });
 
   socket.on('cl_post_comment', ({targetId, text}, done) => {
