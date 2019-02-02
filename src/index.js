@@ -18,7 +18,6 @@ const Article = mongoose.model('Article', {
   excerpt: String,
   coverUrl: String,
   isOriginal: Boolean,
-  sourceTitle: String,
   sourceName: String,
   sourceUrl: String,
   markdown: String,
@@ -203,14 +202,14 @@ server.on('connect', function(socket) {
     done(success());
   });
 
-  socket.on('cl_new_article', ({title, excerpt, coverUrl, isOriginal, sourceTitle, sourceName, sourceUrl, markdown}, done) => {
+  socket.on('cl_new_article', ({title, excerpt, coverUrl, isOriginal, sourceName, sourceUrl, markdown}, done) => {
     debug('cl_new_article', title);
     if (!user) return done(error('forbidden'));
     Article.findOne({title}).then((doc) => {
       if (doc) throw new Err('duplicated title');
       return Article.create({
         creatorId: user._id,
-        title, excerpt, coverUrl, isOriginal, sourceTitle, sourceName, sourceUrl, markdown,
+        title, excerpt, coverUrl, isOriginal, sourceName, sourceUrl, markdown,
         date: new Date(),
       });
     }).then((doc) => {
@@ -232,8 +231,8 @@ server.on('connect', function(socket) {
     debug('cl_get_article', title);
     const doc = await Article.findOne({title});
     if (!doc) return done(error('no article found'));
-    const {excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount} = doc;
-    const res = {id: doc.id, title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount};
+    const {excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl} = doc;
+    const res = {id: doc.id, title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl};
     if (user) {
       res.viewCount += 1;
       Flag.create({intent: 'View', creatorId: user._id, targetId: doc._id, date: new Date()});
