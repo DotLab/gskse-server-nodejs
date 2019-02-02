@@ -56,7 +56,7 @@ const Flag = mongoose.model('Flag', {
 });
 
 if (process.env.NODE_ENV === 'development') {
-  const {articleMarkdown2} = require('./mocks');
+  const {articleMarkdown1, articleMarkdown2} = require('./mocks');
 
   let user;
   let article;
@@ -72,6 +72,27 @@ if (process.env.NODE_ENV === 'development') {
   }).then((doc) => {
     user = doc;
     return Article.deleteMany({}).then(() => {
+      Article.create([
+        {
+          creatorId: user._id,
+          title: 'Apple Entrepreneur Camp kicks off as app developer earnings hit new record',
+          excerpt: 'Inaugural Session Provides Unprecedented Access to Apple Labs, Engineers, Business and Marketing Expertise',
+          coverUrl: 'https://www.apple.com/newsroom/images/values/diversity-inclusion/Apple-Entrepreneur-camp-kicks-off-01282019_big.jpg.large.jpg',
+          isOriginal: false,
+          sourceName: 'Apple',
+          sourceUrl: 'https://www.apple.com/newsroom/2019/01/apple-entrepreneur-camp-kicks-off-as-app-developer-earnings-hit-new-record/',
+          markdown: articleMarkdown1,
+          date: new Date(),
+          // cache
+          creatorName: doc.name,
+          voteCount: 3,
+          upVoteCount: 4,
+          downVoteCount: 1,
+          loveCount: 2,
+          commentCount: 1,
+          viewCount: 5,
+        },
+      ]);
       return Article.create({
         creatorId: user._id,
         title: 'Rimuru Tempest and Robinson Crusoe: How to Build a Civilization',
