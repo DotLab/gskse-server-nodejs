@@ -174,6 +174,13 @@ function Err(message) {
   this.message = message;
 }
 
+function adjustById(collection, id, adjustment) {
+  switch (collection) {
+    case 'Article': return Article.findByIdAndUpdate(id, {$inc: adjustment}).exec();
+    case 'Comment': return Comment.findByIdAndUpdate(id, {$inc: adjustment}).exec();
+  }
+}
+
 server.on('connect', function(socket) {
   debug('connect', socket.id);
   let user = null;
@@ -232,8 +239,16 @@ server.on('connect', function(socket) {
         creatorId: user._id,
         title, excerpt, coverUrl, isOriginal, sourceName, sourceUrl, markdown,
         date: new Date(),
+        // cache
+        creatorName: user.name,
+        voteCount: 0,
+        upVoteCount: 0,
+        downVoteCount: 0,
+        loveCount: 0,
+        commentCount: 0,
+        viewCount: 0,
       });
-    }).then((doc) => {
+    }).then(() => {
       done(success());
     }).catch((err) => done(error(err)));
   });
@@ -296,11 +311,10 @@ server.on('connect', function(socket) {
     }
   });
 
-  socket.on('cl_post_comment', ({targetId, text}, done) => {
+  socket.on('cl_post_comment', ({collection, targetId, text}, done) => {
     debug('cl_post_comment', targetId, text);
     if (!user) return done(error('forbidden'));
-    Article.findByIdAndUpdate(targetId, {$inc: {commentCount: 1}}).exec();
-    Comment.findByIdAndUpdate(targetId, {$inc: {commentCount: 1}}).exec();
+    adjustById(collection, targetId, {commentCount: 1});
     Comment.create({
       creatorId: user._id,
       targetId: targetId,
@@ -321,7 +335,7 @@ server.on('connect', function(socket) {
     });
   });
 
-  socket.on('cl_flag', async ({targetId, intent}, done) => {
+  socket.on('cl_flag', async ({collection, targetId, intent}, done) => {
     debug('cl_flag', intent, targetId);
     if (!user) return done(error('forbidden'));
     switch (intent) {
@@ -332,6 +346,7 @@ server.on('connect', function(socket) {
           adjustment.voteCount -= 1;
           adjustment.upVoteCount -= 1;
           Flag.deleteMany({targetId, creatorId: user._id, intent: UpVote}).exec();
+          adjustById(collection, targetId, adjustment);
           return done(success(adjustment));
         }
 
@@ -345,8 +360,7 @@ server.on('connect', function(socket) {
           Flag.deleteMany({targetId, creatorId: user._id, intent: DownVote}).exec();
         }
         Flag.create({targetId, creatorId: user._id, intent: UpVote});
-        Article.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
-        Comment.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        adjustById(collection, targetId, adjustment);
         return done(success(adjustment));
       }
       case DownVote: {
@@ -356,6 +370,7 @@ server.on('connect', function(socket) {
           adjustment.voteCount += 1;
           adjustment.downVoteCount -= 1;
           Flag.deleteMany({targetId, creatorId: user._id, intent: DownVote}).exec();
+          adjustById(collection, targetId, adjustment);
           return done(success(adjustment));
         }
 
@@ -369,8 +384,7 @@ server.on('connect', function(socket) {
           Flag.deleteMany({targetId, creatorId: user._id, intent: UpVote}).exec();
         }
         Flag.create({targetId, creatorId: user._id, intent: DownVote});
-        Article.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
-        Comment.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        adjustById(collection, targetId, adjustment);
         return done(success(adjustment));
       }
       case Love: {
@@ -379,13 +393,13 @@ server.on('connect', function(socket) {
         if (flag) { // un-love
           adjustment.loveCount -= 1;
           Flag.deleteMany({targetId, creatorId: user._id, intent: Love}).exec();
+          adjustById(collection, targetId, adjustment);
           return done(success(adjustment));
         }
         adjustment.loveCount += 1;
         adjustment.didLove = true;
         Flag.create({targetId, creatorId: user._id, intent: Love});
-        Article.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
-        Comment.findByIdAndUpdate(targetId, {$inc: adjustment}).exec();
+        adjustById(collection, targetId, adjustment);
         return done(success(adjustment));
       }
       default:
