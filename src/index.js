@@ -80,78 +80,91 @@ const Transaction = mongoose.model('Transaction', {
 if (process.env.NODE_ENV === 'development') {
   const {articleMarkdown1, articleMarkdown2} = require('./mocks');
 
-  let user;
-  let article;
-  let comment;
+  (async function() {
+    await User.deleteMany({});
+    await Article.deleteMany({});
+    await Comment.deleteMany({});
+    await Transaction.deleteMany({});
+    await Loan.deleteMany({});
 
-  User.deleteMany({}).then(() => {
-    return User.create({
+    const initialLoan = 10000;
+
+    const user = await User.create({
       name: 'Kailang',
       email: 'kailangfu@gmail.com',
       salt: '5RyOpUlzGzKL6Bhv/gPpiOtiGmQX5qxF4PqbZvO60HaxwmAjLBcGV3RHUBV8nJ83UxiYjISFdqOxHPM8D1eGsNWs/mee7GQkppBz8j2o3cVseDF5j8cFcToglY70n7FrlmPhKP50T/1H2UZAczl/g4nXTcNeE/EUbAhL6gaY4Nq01LWS6B9k60z5VhYmnup4kAX4wwUG2k30TBwvvxRi4iTk9D66VK7tEyEv/JevAwvYUmMdVP1UKpmOCS7IRLZrv9cKnGbZF/F6i19uEWZpAkOriBtOu57CfP7RKUsjzTsZqE15H/63gREe2v2nldrOstqz6FEy2yzOeWi8vZvUAA==',
       hash: 'nlEDz8iDHQzTk75KpoQMF0+g1/KI89JDpR0Q4ciDG+oi2bMuhDOv3B48J7X1x085fEXFkvIS3b/PD+mRaow8zw==',
+      cash: initialLoan,
+      debt: initialLoan,
     });
-  }).then((doc) => {
-    user = doc;
-    return Article.deleteMany({}).then(() => {
-      Article.create([
-        {
-          creatorId: user._id,
-          title: 'Apple Entrepreneur Camp kicks off as app developer earnings hit new record',
-          excerpt: 'Inaugural Session Provides Unprecedented Access to Apple Labs, Engineers, Business and Marketing Expertise',
-          coverUrl: 'https://www.apple.com/newsroom/images/values/diversity-inclusion/Apple-Entrepreneur-camp-kicks-off-01282019_big.jpg.large.jpg',
-          isOriginal: false,
-          sourceName: 'Apple',
-          sourceUrl: 'https://www.apple.com/newsroom/2019/01/apple-entrepreneur-camp-kicks-off-as-app-developer-earnings-hit-new-record/',
-          markdown: articleMarkdown1,
-          date: new Date(),
-          // cache
-          creatorName: doc.name,
-          voteCount: 3,
-          upVoteCount: 4,
-          downVoteCount: 1,
-          loveCount: 2,
-          commentCount: 0,
-          viewCount: 5,
-        },
-      ]);
-      return Article.create({
-        creatorId: user._id,
-        title: 'Rimuru Tempest and Robinson Crusoe: How to Build a Civilization',
-        excerpt: 'I remember reading The Swiss Family Robinson over and over when I was little. Washed ashore in a strange land, marooned away from everything comfortable and familiar, a family must learn to thrive in their new unfamiliar home. Unlike the post-disaster tales saturating our contemporary mediascape, where people must do drastic things to survive savage environs, The Swiss Family Robinson is a story where the land is not altogether hostile, and the characters are optimistic about their future, acting more cooperative than territorial and more curious than fearful.',
-        coverUrl: 'https://cdn.animenewsnetwork.com/thumbnails/fit600x1000/cms/feature/142729/slime-reincarnation-fantasy-13.jpg',
-        isOriginal: false,
-        sourceName: 'Anime News Network',
-        sourceUrl: 'https://www.animenewsnetwork.com/feature/2019-01-30/rimuru-tempest-and-robinson-crusoe-how-to-build-a-civilization/.142729',
-        markdown: articleMarkdown2,
-        date: new Date(),
-        // cache
-        creatorName: doc.name,
-        voteCount: 3,
-        upVoteCount: 4,
-        downVoteCount: 1,
-        loveCount: 2,
-        commentCount: 1,
-        viewCount: 5,
-      });
+
+    const loan = await Loan.create({
+      toId: user._id,
+      annualRate: 0.06,
+      amount: initialLoan,
+      date: new Date(),
     });
-  }).then((doc) => {
-    article = doc;
-    return Comment.deleteMany({}).then(() => {
-      return Comment.create({
-        creatorId: user._id,
-        targetId: article._id,
-        text: 'Don\'t dream too far. Don\'t lose side of who you are.',
-        date: new Date(),
-        // cache
-        creatorName: user.name,
-        voteCount: 0,
-        commentCount: 2,
-      });
+
+    await Transaction.create({
+      intent: LOAN,
+      fromId: loan._id,
+      toId: user._id,
+      amount: initialLoan,
+      date: new Date(),
     });
-  }).then((doc) => {
-    comment = doc;
-    return Comment.create([
+
+    await Article.create({
+      creatorId: user._id,
+      title: 'Apple Entrepreneur Camp kicks off as app developer earnings hit new record',
+      excerpt: 'Inaugural Session Provides Unprecedented Access to Apple Labs, Engineers, Business and Marketing Expertise',
+      coverUrl: 'https://www.apple.com/newsroom/images/values/diversity-inclusion/Apple-Entrepreneur-camp-kicks-off-01282019_big.jpg.large.jpg',
+      isOriginal: false,
+      sourceName: 'Apple',
+      sourceUrl: 'https://www.apple.com/newsroom/2019/01/apple-entrepreneur-camp-kicks-off-as-app-developer-earnings-hit-new-record/',
+      markdown: articleMarkdown1,
+      date: new Date(),
+      // cache
+      creatorName: user.name,
+      voteCount: 3,
+      upVoteCount: 4,
+      downVoteCount: 1,
+      loveCount: 2,
+      commentCount: 0,
+      viewCount: 5,
+    });
+
+    const article = await Article.create({
+      creatorId: user._id,
+      title: 'Rimuru Tempest and Robinson Crusoe: How to Build a Civilization',
+      excerpt: 'I remember reading The Swiss Family Robinson over and over when I was little. Washed ashore in a strange land, marooned away from everything comfortable and familiar, a family must learn to thrive in their new unfamiliar home. Unlike the post-disaster tales saturating our contemporary mediascape, where people must do drastic things to survive savage environs, The Swiss Family Robinson is a story where the land is not altogether hostile, and the characters are optimistic about their future, acting more cooperative than territorial and more curious than fearful.',
+      coverUrl: 'https://cdn.animenewsnetwork.com/thumbnails/fit600x1000/cms/feature/142729/slime-reincarnation-fantasy-13.jpg',
+      isOriginal: false,
+      sourceName: 'Anime News Network',
+      sourceUrl: 'https://www.animenewsnetwork.com/feature/2019-01-30/rimuru-tempest-and-robinson-crusoe-how-to-build-a-civilization/.142729',
+      markdown: articleMarkdown2,
+      date: new Date(),
+      // cache
+      creatorName: user.name,
+      voteCount: 3,
+      upVoteCount: 4,
+      downVoteCount: 1,
+      loveCount: 2,
+      commentCount: 1,
+      viewCount: 5,
+    });
+
+    const comment = await Comment.create({
+      creatorId: user._id,
+      targetId: article._id,
+      text: 'Don\'t dream too far. Don\'t lose side of who you are.',
+      date: new Date(),
+      // cache
+      creatorName: user.name,
+      voteCount: 0,
+      commentCount: 2,
+    });
+
+    await Comment.create([
       {
         creatorId: user._id,
         targetId: comment._id,
@@ -173,7 +186,7 @@ if (process.env.NODE_ENV === 'development') {
         commentCount: 0,
       },
     ]);
-  });
+  })();
 }
 
 const io = require('socket.io');
