@@ -5,6 +5,9 @@ mongoose.connect('mongodb://localhost:27017/gskse', {useNewUrlParser: true});
 mongoose.set('useFindAndModify', false);
 const ObjectId = mongoose.Schema.Types.ObjectId;
 
+const DefaultAnnualRate = 0.06;
+const InitialLoan = 10000;
+
 const User = mongoose.model('User', {
   name: String,
   email: String,
@@ -12,7 +15,6 @@ const User = mongoose.model('User', {
   hash: String,
   // cached
   cash: Number,
-  debt: Number,
 });
 
 const Article = mongoose.model('Article', {
@@ -87,21 +89,19 @@ if (process.env.NODE_ENV === 'development') {
     await Transaction.deleteMany({});
     await Loan.deleteMany({});
 
-    const initialLoan = 10000;
-
     const user = await User.create({
       name: 'Kailang',
       email: 'kailangfu@gmail.com',
       salt: '5RyOpUlzGzKL6Bhv/gPpiOtiGmQX5qxF4PqbZvO60HaxwmAjLBcGV3RHUBV8nJ83UxiYjISFdqOxHPM8D1eGsNWs/mee7GQkppBz8j2o3cVseDF5j8cFcToglY70n7FrlmPhKP50T/1H2UZAczl/g4nXTcNeE/EUbAhL6gaY4Nq01LWS6B9k60z5VhYmnup4kAX4wwUG2k30TBwvvxRi4iTk9D66VK7tEyEv/JevAwvYUmMdVP1UKpmOCS7IRLZrv9cKnGbZF/F6i19uEWZpAkOriBtOu57CfP7RKUsjzTsZqE15H/63gREe2v2nldrOstqz6FEy2yzOeWi8vZvUAA==',
       hash: 'nlEDz8iDHQzTk75KpoQMF0+g1/KI89JDpR0Q4ciDG+oi2bMuhDOv3B48J7X1x085fEXFkvIS3b/PD+mRaow8zw==',
-      cash: initialLoan,
-      debt: initialLoan,
+      cash: InitialLoan,
+      debt: InitialLoan,
     });
 
     const loan = await Loan.create({
       toId: user._id,
-      annualRate: 0.06,
-      amount: initialLoan,
+      annualRate: DefaultAnnualRate,
+      amount: InitialLoan,
       date: new Date(),
     });
 
@@ -109,7 +109,7 @@ if (process.env.NODE_ENV === 'development') {
       intent: LOAN,
       fromId: loan._id,
       toId: user._id,
-      amount: initialLoan,
+      amount: InitialLoan,
       date: new Date(),
     });
 
@@ -212,6 +212,14 @@ function findByIdAndInc(collection, id, adjustment) {
   }
 }
 
+function getLoanPeriodCount(date) {
+  return 1 + new Date().getUTCFullYear() - date.getUTCFullYear();
+}
+
+function getLoanDebt(date, annualRate, amount) {
+  return Math.ceil(amount * Math.pow(1 + annualRate, getLoanPeriodCount(date)));
+}
+
 server.on('connect', function(socket) {
   debug('connect', socket.id);
   let user = null;
@@ -232,7 +240,22 @@ server.on('connect', function(socket) {
     hasher.update(salt);
     const hash = hasher.digest('base64');
 
-    user = await User.create({name, email, salt, hash});
+    user = await User.create({name, email, salt, hash, cash: InitialLoan});
+    const loan = await Loan.create({
+      toId: user._id,
+      annualRate: DefaultAnnualRate,
+      amount: InitialLoan,
+      date: new Date(),
+    });
+
+    await Transaction.create({
+      intent: LOAN,
+      fromId: loan._id,
+      toId: user._id,
+      amount: InitialLoan,
+      date: new Date(),
+    });
+
     done(success());
   });
 
@@ -260,6 +283,44 @@ server.on('connect', function(socket) {
 
     user = null;
     done(success());
+  });
+
+  socket.on('cl_get_profile', async (done) => {
+    debug('cl_get_profile');
+
+    if (!user) return done(error('forbidden'));
+
+    const [transactions, loans] = await Promise.all([
+      Transaction.find({$or: [{fromId: user._id}, {toId: user._id}]}),
+      Loan.find({toId: user._id}),
+    ]);
+
+    const res = {cash: 0, debt: 0};
+    res.transactions = transactions.map((transaction) => {
+      const {intent, amount, date} = transaction;
+      switch (intent) {
+        case LOAN: {
+          res.cash += amount;
+          return {intent, amount, date, balance: res.cash};
+        }
+        case REPAY: {
+          res.cash -= amount;
+          return {intent, amount, date, balance: res.cash};
+        }
+      }
+    });
+    res.loans = loans.map((loan) => {
+      const {id, annualRate, amount, date, repaidAmount, repaidDate} = loan;
+      const periodCount = getLoanPeriodCount(date);
+      const debt = getLoanDebt(date, annualRate, amount);
+      res.debt += debt;
+      return {id, annualRate, amount, periodCount, debt, date, repaidAmount, repaidDate};
+    });
+
+    // Does not need recalculation normally
+    // User.findByIdAndUpdate(user._id, {$set: {cash: res.cash, debt: res.debt}});
+
+    done(success(res));
   });
 
   socket.on('cl_new_article', async ({title, excerpt, coverUrl, isOriginal, sourceName, sourceUrl, markdown}, done) => {
@@ -304,8 +365,8 @@ server.on('connect', function(socket) {
     const article = await Article.findOne({title});
     if (!article) return done(error('no article found'));
 
-    const {excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl} = article;
-    const res = {id: article.id, title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl};
+    const {id, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl} = article;
+    const res = {id, title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl};
 
     if (user) {
       res.viewCount += 1;
@@ -341,8 +402,8 @@ server.on('connect', function(socket) {
     }
 
     const res = comments.map((comment) => {
-      const {text, date, creatorName, voteCount, commentCount} = comment;
-      return {...dict[comment.id], id: comment.id, text, date, creatorName, voteCount, commentCount};
+      const {id, text, date, creatorName, voteCount, commentCount} = comment;
+      return {...dict[comment.id], id, text, date, creatorName, voteCount, commentCount};
     });
 
     return done(success(res));
@@ -369,8 +430,8 @@ server.on('connect', function(socket) {
     if (comments.length === 0) return done(success([]));
 
     const res = comments.map((comment) => {
-      const {text, date, creatorName, voteCount, commentCount} = comment;
-      return {id: comment.id, text, date, creatorName, voteCount, commentCount};
+      const {id, text, date, creatorName, voteCount, commentCount} = comment;
+      return {id, text, date, creatorName, voteCount, commentCount};
     });
 
     done(success(res));
@@ -451,5 +512,58 @@ server.on('connect', function(socket) {
       default:
         return done(error('invalid flag'));
     }
+  });
+
+  socket.on('cl_repay_loan', async ({loanId}, done) => {
+    debug('cl_repay_loan', loanId);
+
+    if (!user) return done(error('forbidden'));
+    const loan = await Loan.findOne({_id: loanId, repaidDate: null});
+    if (!loan) return done(error('no loan found'));
+
+    const debt = getLoanDebt(loan.date, loan.annualRate, loan.amount);
+    user = await User.findById(user._id);
+    if (user.cash < debt) return done(error('too poor'));
+
+    await Transaction.create({
+      intent: REPAY,
+      fromId: user._id,
+      toId: loan._id,
+      amount: debt,
+      date: new Date(),
+    });
+
+    await Loan.findByIdAndUpdate(loan._id, {$set: {repaidDate: new Date(), repaidAmount: debt}});
+    await User.findByIdAndUpdate(user._id, {$inc: {cash: -debt}});
+    user.cash -= debt;
+
+    done(success(user));
+  });
+
+  socket.on('cl_apply_loan', async ({amount}, done) => {
+    debug('cl_apply_loan', amount);
+
+    if (!user) return done(error('forbidden'));
+
+    const loan = await Loan.create({
+      toId: user._id,
+      annualRate: DefaultAnnualRate,
+      amount: amount,
+      date: new Date(),
+    });
+
+    await Transaction.create({
+      intent: LOAN,
+      fromId: loan._id,
+      toId: user._id,
+      amount: amount,
+      date: new Date(),
+    });
+
+    await User.findByIdAndUpdate(user._id, {$inc: {cash: amount}});
+    user.cash += amount;
+    debug(typeof amount);
+
+    done(success(user));
   });
 });
