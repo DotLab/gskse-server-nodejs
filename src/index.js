@@ -313,7 +313,7 @@ server.on('connect', function(socket) {
       const {id, annualRate, amount, date, repaidAmount, repaidDate} = loan;
       const periodCount = getLoanPeriodCount(date);
       const debt = getLoanDebt(date, annualRate, amount);
-      res.debt += debt;
+      if (!repaidDate) res.debt += debt;
       return {id, annualRate, amount, periodCount, debt, date, repaidAmount, repaidDate};
     });
 
