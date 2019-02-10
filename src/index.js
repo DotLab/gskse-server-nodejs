@@ -43,13 +43,13 @@ const Comment = mongoose.model('Comment', {
   commentCount: Number,
 });
 
-const UpVote = 'UpVote';
-const DownVote = 'DownVote';
-const Love = 'Love';
-const View = 'View';
+const UP_VOTE = 'UP_VOTE';
+const DOWN_VOTE = 'DOWN_VOTE';
+const LOVE = 'LOVE';
+const VIEW = 'VIEW';
 
 const Flag = mongoose.model('Flag', {
-  intent: {type: String, enum: [UpVote, DownVote, Love, View]},
+  intent: {type: String, enum: [UP_VOTE, DOWN_VOTE, LOVE, VIEW]},
   creatorId: ObjectId,
   targetId: ObjectId,
   date: Date,
@@ -274,14 +274,14 @@ server.on('connect', function(socket) {
 
     if (user) {
       res.viewCount += 1;
-      Flag.create({intent: 'View', creatorId: user._id, targetId: article._id, date: new Date()});
+      Flag.create({intent: 'VIEW', creatorId: user._id, targetId: article._id, date: new Date()});
       Article.findByIdAndUpdate(article._id, {$inc: {viewCount: 1}}).exec();
 
       const flags = await Flag.find({targetId: article._id, creatorId: user._id});
       flags.forEach((flag) => { // user's flags
-        if (flag.intent === UpVote) res.didUpVote = true;
-        if (flag.intent === DownVote) res.didDownVote = true;
-        if (flag.intent === Love) res.didLove = true;
+        if (flag.intent === UP_VOTE) res.didUpVote = true;
+        if (flag.intent === DOWN_VOTE) res.didDownVote = true;
+        if (flag.intent === LOVE) res.didLove = true;
       });
     }
 
@@ -300,8 +300,8 @@ server.on('connect', function(socket) {
       flags.forEach((flag) => {
         const id = flag.targetId.toString();
         if (!dict[id]) dict[id] = {};
-        if (flag.intent === UpVote) dict[id].didUpVote = true;
-        if (flag.intent === DownVote) dict[id].didDownVote = true;
+        if (flag.intent === UP_VOTE) dict[id].didUpVote = true;
+        if (flag.intent === DOWN_VOTE) dict[id].didDownVote = true;
       });
     }
 
@@ -346,13 +346,13 @@ server.on('connect', function(socket) {
 
     if (!user) return done(error('forbidden'));
     switch (intent) {
-      case UpVote: {
+      case UP_VOTE: {
         const adjustment = {didUpVote: false, didDownVote: false, voteCount: 0, upVoteCount: 0, downVoteCount: 0};
-        let flag = await Flag.findOne({targetId, intent: UpVote});
+        let flag = await Flag.findOne({targetId, intent: UP_VOTE});
         if (flag) { // un-vote
           adjustment.voteCount -= 1;
           adjustment.upVoteCount -= 1;
-          Flag.deleteMany({targetId, creatorId: user._id, intent: UpVote}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: UP_VOTE}).exec();
           findByIdAndInc(collection, targetId, adjustment);
           return done(success(adjustment));
         }
@@ -360,24 +360,24 @@ server.on('connect', function(socket) {
         adjustment.voteCount += 1;
         adjustment.upVoteCount += 1;
         adjustment.didUpVote = true;
-        flag = await Flag.findOne({targetId, creatorId: user._id, intent: DownVote});
+        flag = await Flag.findOne({targetId, creatorId: user._id, intent: DOWN_VOTE});
         if (flag) { // originally voted down
           adjustment.voteCount += 1;
           adjustment.downVoteCount -= 1;
-          Flag.deleteMany({targetId, creatorId: user._id, intent: DownVote}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: DOWN_VOTE}).exec();
         }
-        Flag.create({targetId, creatorId: user._id, intent: UpVote});
+        Flag.create({targetId, creatorId: user._id, intent: UP_VOTE});
         findByIdAndInc(collection, targetId, adjustment);
         return done(success(adjustment));
       }
 
-      case DownVote: {
+      case DOWN_VOTE: {
         const adjustment = {didUpVote: false, didDownVote: false, voteCount: 0, upVoteCount: 0, downVoteCount: 0};
-        let flag = await Flag.findOne({targetId, creatorId: user._id, intent: DownVote});
+        let flag = await Flag.findOne({targetId, creatorId: user._id, intent: DOWN_VOTE});
         if (flag) { // un-vote
           adjustment.voteCount += 1;
           adjustment.downVoteCount -= 1;
-          Flag.deleteMany({targetId, creatorId: user._id, intent: DownVote}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: DOWN_VOTE}).exec();
           findByIdAndInc(collection, targetId, adjustment);
           return done(success(adjustment));
         }
@@ -385,30 +385,30 @@ server.on('connect', function(socket) {
         adjustment.voteCount -= 1;
         adjustment.downVoteCount += 1;
         adjustment.didDownVote = true;
-        flag = await Flag.findOne({targetId, creatorId: user._id, intent: UpVote});
+        flag = await Flag.findOne({targetId, creatorId: user._id, intent: UP_VOTE});
         if (flag) { // originally voted up
           adjustment.voteCount -= 1;
           adjustment.upVoteCount -= 1;
-          Flag.deleteMany({targetId, creatorId: user._id, intent: UpVote}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: UP_VOTE}).exec();
         }
-        Flag.create({targetId, creatorId: user._id, intent: DownVote});
+        Flag.create({targetId, creatorId: user._id, intent: DOWN_VOTE});
         findByIdAndInc(collection, targetId, adjustment);
         return done(success(adjustment));
       }
 
-      case Love: {
+      case LOVE: {
         const adjustment = {didLove: false, loveCount: 0};
-        const flag = await Flag.findOne({targetId, creatorId: user._id, intent: Love});
+        const flag = await Flag.findOne({targetId, creatorId: user._id, intent: LOVE});
         if (flag) { // un-love
           adjustment.loveCount -= 1;
-          Flag.deleteMany({targetId, creatorId: user._id, intent: Love}).exec();
+          Flag.deleteMany({targetId, creatorId: user._id, intent: LOVE}).exec();
           findByIdAndInc(collection, targetId, adjustment);
           return done(success(adjustment));
         }
 
         adjustment.loveCount += 1;
         adjustment.didLove = true;
-        Flag.create({targetId, creatorId: user._id, intent: Love});
+        Flag.create({targetId, creatorId: user._id, intent: LOVE});
         findByIdAndInc(collection, targetId, adjustment);
         return done(success(adjustment));
       }
