@@ -444,7 +444,7 @@ server.on('connect', function(socket) {
     switch (intent) {
       case UP_VOTE: {
         const adjustment = {didUpVote: false, didDownVote: false, voteCount: 0, upVoteCount: 0, downVoteCount: 0};
-        let flag = await Flag.findOne({targetId, intent: UP_VOTE});
+        let flag = await Flag.findOne({targetId, creatorId: user._id, intent: UP_VOTE});
         if (flag) { // un-vote
           adjustment.voteCount -= 1;
           adjustment.upVoteCount -= 1;
