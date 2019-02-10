@@ -271,7 +271,7 @@ server.on('connect', function(socket) {
 
       if (hash === users[i].hash) { // matched
         user = users[i];
-        return done(success({id: user.id, name: user.name, cash: user.cash, debt: user.debt}));
+        return done(success({id: user.id, name: user.name, cash: user.cash}));
       }
     }
 
@@ -537,7 +537,7 @@ server.on('connect', function(socket) {
     await User.findByIdAndUpdate(user._id, {$inc: {cash: -debt}});
     user.cash -= debt;
 
-    done(success(user));
+    done(success({id: user.id, name: user.name, cash: user.cash}));
   });
 
   socket.on('cl_apply_loan', async ({amount}, done) => {
@@ -564,6 +564,6 @@ server.on('connect', function(socket) {
     user.cash += amount;
     debug(typeof amount);
 
-    done(success(user));
+    done(success({id: user.id, name: user.name, cash: user.cash}));
   });
 });
