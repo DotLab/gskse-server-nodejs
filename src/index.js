@@ -170,11 +170,7 @@ function error(err) {
   return {status: 'error', err};
 }
 
-function Err(message) {
-  this.message = message;
-}
-
-function adjustById(collection, id, adjustment) {
+function findByIdAndInc(collection, id, adjustment) {
   switch (collection) {
     case 'Article': return Article.findByIdAndUpdate(id, {$inc: adjustment}).exec();
     case 'Comment': return Comment.findByIdAndUpdate(id, {$inc: adjustment}).exec();
@@ -185,137 +181,145 @@ server.on('connect', function(socket) {
   debug('connect', socket.id);
   let user = null;
 
-  socket.on('cl_register', ({name, email, password}, done) => {
-    debug('cl_register', name, email, password);
-    User.findOne({$or: [{name}, {email}]}).then((doc) => {
-      if (doc) throw new Err('existing name or email');
-      const salt = crypto.randomBytes(256).toString('base64');
-      const hasher = crypto.createHash('sha512');
-      hasher.update(password);
-      hasher.update(salt);
-      const hash = hasher.digest('base64');
-      return User.create({name, email, salt, hash});
-    }).then((doc) => {
-      done(success({
-        id: doc.id,
-        name: doc.name,
-      }));
-    }).catch((err) => done(error(err)));
+  socket.on('disconnect', () => {
+    debug('disconnect', socket.id);
   });
 
-  socket.on('cl_login', ({nameOrEmail, password}, done) => {
+  socket.on('cl_register', async ({name, email, password}, done) => {
+    debug('cl_register', name, email, password);
+
+    let user = await User.findOne({$or: [{name}, {email}]});
+    if (user) return done(error('existing name or email'));
+
+    const salt = crypto.randomBytes(256).toString('base64');
+    const hasher = crypto.createHash('sha512');
+    hasher.update(password);
+    hasher.update(salt);
+    const hash = hasher.digest('base64');
+
+    user = await User.create({name, email, salt, hash});
+    done(success({id: user.id, name: user.name}));
+  });
+
+  socket.on('cl_login', async ({nameOrEmail, password}, done) => {
     debug('cl_login', nameOrEmail, password);
-    User.find({$or: [{name: nameOrEmail}, {email: nameOrEmail}]}).then((docs) => {
-      for (let i = 0; i < docs.length; i += 1) {
-        const doc = docs[i];
-        const hasher = crypto.createHash('sha512');
-        hasher.update(password);
-        hasher.update(doc.salt);
-        const hash = hasher.digest('base64');
-        if (hash === doc.hash) { // matched
-          user = doc;
-          return done(success({
-            id: doc.id,
-            name: doc.name,
-          }));
-        }
+
+    const users = await User.find({$or: [{name: nameOrEmail}, {email: nameOrEmail}]});
+    for (let i = 0; i < users.length; i += 1) {
+      const hasher = crypto.createHash('sha512');
+      hasher.update(password);
+      hasher.update(users[i].salt);
+      const hash = hasher.digest('base64');
+
+      if (hash === users[i].hash) { // matched
+        user = users[i];
+        return done(success({id: user.id, name: user.name}));
       }
-      throw new Err('no match found');
-    }).catch((err) => done(error(err)));
+    }
+
+    done(error('no match found'));
   });
 
   socket.on('cl_logout', (done) => {
     debug('cl_logout');
+
     user = null;
     done(success());
   });
 
-  socket.on('cl_new_article', ({title, excerpt, coverUrl, isOriginal, sourceName, sourceUrl, markdown}, done) => {
+  socket.on('cl_new_article', async ({title, excerpt, coverUrl, isOriginal, sourceName, sourceUrl, markdown}, done) => {
     debug('cl_new_article', title);
+
     if (!user) return done(error('forbidden'));
-    Article.findOne({title}).then((doc) => {
-      if (doc) throw new Err('duplicated title');
-      return Article.create({
-        creatorId: user._id,
-        title, excerpt, coverUrl, isOriginal, sourceName, sourceUrl, markdown,
-        date: new Date(),
-        // cache
-        creatorName: user.name,
-        voteCount: 0,
-        upVoteCount: 0,
-        downVoteCount: 0,
-        loveCount: 0,
-        commentCount: 0,
-        viewCount: 0,
-      });
-    }).then(() => {
-      done(success());
-    }).catch((err) => done(error(err)));
+
+    let article = await Article.findOne({title});
+    if (article) return done(error('duplicated title'));
+
+    article = await Article.create({
+      creatorId: user._id,
+      title, excerpt, coverUrl, isOriginal, sourceName, sourceUrl, markdown,
+      date: new Date(),
+      // cache
+      creatorName: user.name,
+      voteCount: 0,
+      upVoteCount: 0,
+      downVoteCount: 0,
+      loveCount: 0,
+      commentCount: 0,
+      viewCount: 0,
+    });
+
+    done(success());
   });
 
-  socket.on('cl_get_articles', (args, done) => {
+  socket.on('cl_get_articles', async (args, done) => {
     debug('cl_get_articles');
-    Article.find().sort({date: -1}).then((docs) => {
-      const data = docs.map(({id, title, excerpt, coverUrl, sourceName, date}) => ({
-        id, title, excerpt, coverUrl, sourceName, date,
-      }));
-      done(success(data));
-    }).catch((err) => done(error(err)));
+
+    const articles = await Article.find().sort({date: -1});
+    const res = articles.map(({id, title, excerpt, coverUrl, sourceName, date}) => ({
+      id, title, excerpt, coverUrl, sourceName, date,
+    }));
+
+    done(success(res));
   });
 
   socket.on('cl_get_article', async ({title}, done) => {
     debug('cl_get_article', title);
-    const doc = await Article.findOne({title});
-    if (!doc) return done(error('no article found'));
-    const {excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl} = doc;
-    const res = {id: doc.id, title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl};
+
+    const article = await Article.findOne({title});
+    if (!article) return done(error('no article found'));
+
+    const {excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl} = article;
+    const res = {id: article.id, title, excerpt, date, coverUrl, markdown, creatorName, viewCount, upVoteCount, downVoteCount, loveCount, commentCount, isOriginal, sourceName, sourceUrl};
+
     if (user) {
       res.viewCount += 1;
-      Flag.create({intent: 'View', creatorId: user._id, targetId: doc._id, date: new Date()});
-      Article.findByIdAndUpdate(doc._id, {$inc: {viewCount: 1}}).exec();
-      const flags = await Flag.find({targetId: doc._id, creatorId: user._id});
-      flags.forEach((flag) => {
+      Flag.create({intent: 'View', creatorId: user._id, targetId: article._id, date: new Date()});
+      Article.findByIdAndUpdate(article._id, {$inc: {viewCount: 1}}).exec();
+
+      const flags = await Flag.find({targetId: article._id, creatorId: user._id});
+      flags.forEach((flag) => { // user's flags
         if (flag.intent === UpVote) res.didUpVote = true;
         if (flag.intent === DownVote) res.didDownVote = true;
         if (flag.intent === Love) res.didLove = true;
       });
     }
+
     return done(success(res));
   });
 
   socket.on('cl_get_comments', async ({targetId}, done) => {
     debug('cl_get_comments', targetId);
-    try {
-      const docs = await Comment.find({targetId});
-      if (!docs || docs.length === 0) return done(success([]));
 
-      const dict = {};
-      if (user) {
-        const flags = await Flag.find({$or: docs.map((doc) => ({targetId: doc._id, creatorId: user._id}))});
-        flags.forEach((flag) => {
-          const id = flag.targetId.toString();
-          if (!dict[id]) dict[id] = {};
-          if (flag.intent === UpVote) dict[id].didUpVote = true;
-          if (flag.intent === DownVote) dict[id].didDownVote = true;
-        });
-      }
+    const comments = await Comment.find({targetId});
+    if (comments.length === 0) return done(success([]));
 
-      const res = docs.map((doc) => {
-        const {text, date, creatorName, voteCount, commentCount} = doc;
-        return {...dict[doc.id], id: doc.id, text, date, creatorName, voteCount, commentCount};
+    const dict = {};
+    if (user) { // find user's flags for all comments
+      const flags = await Flag.find({$or: comments.map((comment) => ({targetId: comment._id, creatorId: user._id}))});
+      flags.forEach((flag) => {
+        const id = flag.targetId.toString();
+        if (!dict[id]) dict[id] = {};
+        if (flag.intent === UpVote) dict[id].didUpVote = true;
+        if (flag.intent === DownVote) dict[id].didDownVote = true;
       });
-
-      return done(success(res));
-    } catch (e) {
-      done(error(e));
     }
+
+    const res = comments.map((comment) => {
+      const {text, date, creatorName, voteCount, commentCount} = comment;
+      return {...dict[comment.id], id: comment.id, text, date, creatorName, voteCount, commentCount};
+    });
+
+    return done(success(res));
   });
 
-  socket.on('cl_post_comment', ({collection, targetId, text}, done) => {
-    debug('cl_post_comment', targetId, text);
+  socket.on('cl_post_comment', async ({collection, targetId, text}, done) => {
+    debug('cl_post_comment', collection, targetId, text);
+
     if (!user) return done(error('forbidden'));
-    adjustById(collection, targetId, {commentCount: 1});
-    Comment.create({
+
+    findByIdAndInc(collection, targetId, {commentCount: 1});
+    await Comment.create({
       creatorId: user._id,
       targetId: targetId,
       text: text,
@@ -324,19 +328,22 @@ server.on('connect', function(socket) {
       creatorName: user.name,
       voteCount: 0,
       commentCount: 0,
-    }).then(() => {
-      return Comment.find({targetId}).then((docs) => {
-        if (!docs) return done(success([]));
-        return done(success(docs.map((doc) => {
-          const {text, date, creatorName, voteCount, commentCount} = doc;
-          return {id: doc.id, text, date, creatorName, voteCount, commentCount};
-        })));
-      });
     });
+
+    const comments = await Comment.find({targetId});
+    if (comments.length === 0) return done(success([]));
+
+    const res = comments.map((comment) => {
+      const {text, date, creatorName, voteCount, commentCount} = comment;
+      return {id: comment.id, text, date, creatorName, voteCount, commentCount};
+    });
+
+    done(success(res));
   });
 
   socket.on('cl_flag', async ({collection, targetId, intent}, done) => {
-    debug('cl_flag', intent, targetId);
+    debug('cl_flag', collection, intent, targetId);
+
     if (!user) return done(error('forbidden'));
     switch (intent) {
       case UpVote: {
@@ -346,7 +353,7 @@ server.on('connect', function(socket) {
           adjustment.voteCount -= 1;
           adjustment.upVoteCount -= 1;
           Flag.deleteMany({targetId, creatorId: user._id, intent: UpVote}).exec();
-          adjustById(collection, targetId, adjustment);
+          findByIdAndInc(collection, targetId, adjustment);
           return done(success(adjustment));
         }
 
@@ -360,9 +367,10 @@ server.on('connect', function(socket) {
           Flag.deleteMany({targetId, creatorId: user._id, intent: DownVote}).exec();
         }
         Flag.create({targetId, creatorId: user._id, intent: UpVote});
-        adjustById(collection, targetId, adjustment);
+        findByIdAndInc(collection, targetId, adjustment);
         return done(success(adjustment));
       }
+
       case DownVote: {
         const adjustment = {didUpVote: false, didDownVote: false, voteCount: 0, upVoteCount: 0, downVoteCount: 0};
         let flag = await Flag.findOne({targetId, creatorId: user._id, intent: DownVote});
@@ -370,7 +378,7 @@ server.on('connect', function(socket) {
           adjustment.voteCount += 1;
           adjustment.downVoteCount -= 1;
           Flag.deleteMany({targetId, creatorId: user._id, intent: DownVote}).exec();
-          adjustById(collection, targetId, adjustment);
+          findByIdAndInc(collection, targetId, adjustment);
           return done(success(adjustment));
         }
 
@@ -384,30 +392,29 @@ server.on('connect', function(socket) {
           Flag.deleteMany({targetId, creatorId: user._id, intent: UpVote}).exec();
         }
         Flag.create({targetId, creatorId: user._id, intent: DownVote});
-        adjustById(collection, targetId, adjustment);
+        findByIdAndInc(collection, targetId, adjustment);
         return done(success(adjustment));
       }
+
       case Love: {
         const adjustment = {didLove: false, loveCount: 0};
         const flag = await Flag.findOne({targetId, creatorId: user._id, intent: Love});
         if (flag) { // un-love
           adjustment.loveCount -= 1;
           Flag.deleteMany({targetId, creatorId: user._id, intent: Love}).exec();
-          adjustById(collection, targetId, adjustment);
+          findByIdAndInc(collection, targetId, adjustment);
           return done(success(adjustment));
         }
+
         adjustment.loveCount += 1;
         adjustment.didLove = true;
         Flag.create({targetId, creatorId: user._id, intent: Love});
-        adjustById(collection, targetId, adjustment);
+        findByIdAndInc(collection, targetId, adjustment);
         return done(success(adjustment));
       }
+
       default:
         return done(error('invalid flag'));
     }
-  });
-
-  socket.on('disconnect', () => {
-    debug('disconnect', socket.id);
   });
 });
