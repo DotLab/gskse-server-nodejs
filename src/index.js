@@ -10,6 +10,9 @@ const User = mongoose.model('User', {
   email: String,
   salt: String,
   hash: String,
+  // cached
+  cash: Number,
+  debt: Number,
 });
 
 const Article = mongoose.model('Article', {
@@ -47,11 +50,30 @@ const UP_VOTE = 'UP_VOTE';
 const DOWN_VOTE = 'DOWN_VOTE';
 const LOVE = 'LOVE';
 const VIEW = 'VIEW';
-
 const Flag = mongoose.model('Flag', {
   intent: {type: String, enum: [UP_VOTE, DOWN_VOTE, LOVE, VIEW]},
   creatorId: ObjectId,
   targetId: ObjectId,
+  date: Date,
+});
+
+const Loan = mongoose.model('Loan', {
+  toId: ObjectId,
+  annualRate: Number,
+  amount: Number,
+  date: Date,
+  repaidAmount: Number,
+  repaidDate: Date,
+});
+
+const LOAN = 'LOAN';
+const REPAY = 'REPAY';
+const TRANSFER = 'TRANSFER';
+const Transaction = mongoose.model('Transaction', {
+  intent: {type: String, enum: [LOAN, REPAY, TRANSFER]},
+  fromId: ObjectId,
+  toId: ObjectId,
+  amount: Number,
   date: Date,
 });
 
