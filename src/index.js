@@ -233,7 +233,7 @@ server.on('connect', function(socket) {
     const hash = hasher.digest('base64');
 
     user = await User.create({name, email, salt, hash});
-    done(success({id: user.id, name: user.name}));
+    done(success());
   });
 
   socket.on('cl_login', async ({nameOrEmail, password}, done) => {
@@ -248,7 +248,7 @@ server.on('connect', function(socket) {
 
       if (hash === users[i].hash) { // matched
         user = users[i];
-        return done(success({id: user.id, name: user.name}));
+        return done(success({id: user.id, name: user.name, cash: user.cash, debt: user.debt}));
       }
     }
 
